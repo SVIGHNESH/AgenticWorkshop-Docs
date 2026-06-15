@@ -1,0 +1,164 @@
+DAY 1 - AI Fundamentals & Job Agent
+=====================================
+
+THEORY
+======
+
+Artificial Intelligence (AI)
+-----------------------------
+AI enables machines to perform tasks that normally require human intelligence.
+Used for learning, reasoning, and decision-making.
+
+Types of AI:
+  - Narrow AI  : Designed for a specific task (voice assistants, recommendation systems)
+  - General AI : Can perform any intellectual task a human can do (still under research)
+  - Super AI   : Theoretical; would surpass human intelligence (does not currently exist)
+
+Machine Learning (ML)
+---------------------
+Systems learn patterns from data and improve automatically.
+Widely used for predictions and classification.
+
+Deep Learning (DL)
+------------------
+Subset of ML that uses neural networks.
+Highly effective for image, audio, and video processing.
+
+Generative AI
+-------------
+Creates new content (text, images, audio, code) based on user input.
+
+Agentic AI
+----------
+Can perform tasks autonomously with minimal human intervention.
+Makes decisions and takes actions to achieve goals.
+
+Key Python Libraries for ML/AI
+-------------------------------
+  - NumPy      : Numerical and mathematical computations
+  - Pandas     : Data analysis and manipulation
+  - Scikit-learn : ML algorithms and tools
+  - TensorFlow : Deep learning framework by Google
+  - PyTorch    : Flexible deep learning framework, popular in research
+
+HTTP Methods
+------------
+  GET  - Retrieve data from a server
+  POST - Send data to a server
+Both are common HTTP methods used in APIs.
+
+Large Language Model (LLM)
+--------------------------
+Trained on large amounts of text data to understand and generate human-like language.
+Examples: ChatGPT, Gemini, Grok.
+
+Prompt Engineering
+------------------
+Practice of designing effective prompts to improve AI output quality.
+
+  Zero-shot Prompting:
+    - No examples provided; AI relies on pre-trained knowledge
+    - Example: "Translate this sentence to French."
+
+  One-shot Prompting:
+    - One example is provided before the task
+    - Example: "English: Hello -> French: Bonjour. English: Thank you -> French: ?"
+
+  Chain-of-Thought Prompting:
+    - AI reasons step by step before answering
+    - Useful for complex problems and improving accuracy
+
+
+CODE EXAMPLES
+=============
+
+1. Skill Extraction from Resume/JD Text
+-----------------------------------------
+# From: Code/DAY1/jobagents/backend/services/analyzer.py
+
+POSSIBLE_SKILLS = [
+    'python', 'java', 'react', 'fastapi', 'sql', 'postgresql',
+    'machine learning', 'docker', 'aws', 'git', 'kubernetes',
+    'javascript', 'typescript', 'data analysis', 'agile'
+]
+
+def extract_skills(text: str) -> list:
+    text_lower = text.lower()
+    found = [s for s in POSSIBLE_SKILLS if s in text_lower]
+    return sorted(set(found))
+
+# Usage:
+# resume_text = "Experienced Python developer with Docker and AWS skills"
+# skills = extract_skills(resume_text)
+# Output: ['aws', 'docker', 'python']
+
+
+2. Skill Gap Matching
+----------------------
+# From: Code/DAY1/jobagents/backend/services/matcher.py
+
+def calculate_match(resume_skills: list, jd_skills: list) -> tuple:
+    """Returns (match_percentage, missing_skills)"""
+    if not jd_skills:
+        return 0.0, []
+
+    matched = set(resume_skills).intersection(set(jd_skills))
+    missing = set(jd_skills) - set(resume_skills)
+    score = (len(matched) / len(jd_skills)) * 100
+
+    return round(score, 2), list(missing)
+
+# Usage:
+# resume_skills = ['python', 'docker', 'git']
+# jd_skills    = ['python', 'docker', 'kubernetes', 'aws']
+# score, gaps  = calculate_match(resume_skills, jd_skills)
+# Output: score=50.0, gaps=['kubernetes', 'aws']
+
+
+3. Course Recommendations for Skill Gaps
+------------------------------------------
+# From: Code/DAY1/jobagents/backend/services/recommender.py
+
+COURSE_MAP = {
+    "python":     "Python for Automation (Coursera)",
+    "docker":     "Docker: Containerization Basics (Docker Docs)",
+    "aws":        "AWS: Cloud Infrastructure (A Cloud Guru)",
+    "kubernetes": "Kubernetes: Orchestration (KodeKloud)",
+    "react":      "React.js: Building User Interfaces (Frontend Masters)",
+    "sql":        "SQL: Data Retrieval (Mode Analytics)",
+}
+
+def generate_recommendations(missing_skills: list) -> list:
+    recommendations = []
+    for skill in missing_skills:
+        course = COURSE_MAP.get(skill.lower())
+        if course:
+            recommendations.append(course)
+    return recommendations
+
+# Usage:
+# missing = ['kubernetes', 'aws']
+# print(generate_recommendations(missing))
+# Output: ['Kubernetes: Orchestration (KodeKloud)', 'AWS: Cloud Infrastructure (A Cloud Guru)']
+
+
+4. FastAPI Endpoint for Resume Analysis
+-----------------------------------------
+# From: Code/DAY1/jobagents/backend/api/routes.py
+
+from fastapi import FastAPI, UploadFile
+app = FastAPI()
+
+@app.post("/analyze")
+async def analyze(resume: UploadFile, jd: UploadFile):
+    resume_text = parse_file(resume)       # extract text from PDF/DOCX
+    jd_text     = parse_file(jd)
+    resume_skills = extract_skills(resume_text)
+    jd_skills     = extract_skills(jd_text)
+    score, missing = calculate_match(resume_skills, jd_skills)
+    courses = generate_recommendations(missing)
+    return {
+        "match_score": score,
+        "missing_skills": missing,
+        "courses": courses
+    }

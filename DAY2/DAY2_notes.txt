@@ -1,0 +1,182 @@
+DAY 2 - Retrieval Augmented Generation (RAG)
+=============================================
+
+THEORY
+======
+
+What is RAG?
+------------
+RAG is an AI architecture that combines information retrieval with LLMs.
+Instead of relying only on the model's training data, RAG retrieves relevant
+information from external knowledge sources and uses it to generate answers.
+
+Five Pillars of RAG
+-------------------
+1. Documents    : Knowledge sources (PDFs, Word files, web pages, databases)
+2. Embedding Model : Converts text into mathematical vectors (embeddings)
+3. Vector Database : Stores embeddings for similarity search (FAISS, ChromaDB, Pinecone)
+4. Retriever    : Finds the most relevant chunks for a user query
+5. LLM          : Reasons over retrieved context to generate the final answer
+
+Embedding Concepts
+------------------
+Bag of Words (BoW):
+  Represents text using word frequencies.
+  "cat sat mat" -> {cat:1, sat:1, mat:1}
+  Problem: no meaning, no order.
+
+Word2Vec:
+  Dense vector representations where similar words have similar vectors.
+  king - man + woman = queen (arithmetic on meaning!)
+
+RAG Pipeline - Phase 1: Indexing
+---------------------------------
+  Documents --> Chunking --> Embeddings --> Vector Database
+
+  Step 1: Collect documents
+  Step 2: Split into smaller chunks (e.g. 800 characters with 150 overlap)
+  Step 3: Generate embedding vectors for each chunk
+  Step 4: Store embeddings in FAISS / ChromaDB for fast search
+
+RAG Pipeline - Phase 2: Retrieval & Generation
+------------------------------------------------
+  User Query --> Embed Query --> Vector Search --> Top-K Chunks --> LLM --> Answer
+
+  Step 1: User submits a question
+  Step 2: Question is converted into an embedding vector
+  Step 3: Vector search finds the most similar chunks
+  Step 4: Top chunks are sent to the LLM as context
+  Step 5: LLM generates a grounded, accurate answer
+
+Applications of RAG
+--------------------
+  - Enterprise Search (search internal company documents)
+  - HR Assistant (answer policy questions from HR docs)
+  - Legal Assistant (search contracts and laws)
+  - Healthcare Assistant (medical knowledge Q&A)
+  - Customer Support (product manuals, FAQs)
+  - Education (textbook Q&A chatbot)
+
+LangChain
+---------
+Open-source framework for building LLM applications.
+Connects models, prompts, memory, tools, and agents together.
+
+Components:
+  - Prompt Templates : Reusable prompt structures with variables
+  - LLM Wrappers     : Connect to OpenAI, Gemini, Anthropic, Hugging Face
+  - Chains           : Link multiple operations together
+  - Output Parsers   : Convert outputs into structured formats
+  - Memory           : Store conversation history
+  - Tools            : External functions (search, APIs, calculators)
+  - Agents           : Choose which tools to use and what actions to perform
+
+Hugging Face
+------------
+Platform hosting thousands of open-source AI models.
+Used for NLP, embeddings, vision, and LLM applications.
+
+NLP (Natural Language Processing)
+----------------------------------
+Field of AI that enables computers to understand and generate human language.
+
+
+CODE EXAMPLES
+=============
+
+1. PDF Text Extraction
+------------------------
+# From: Code/DAY2/RAGCHATBOT/rag.py
+
+from pypdf import PdfReader
+
+def extract_text(pdf_file) -> str:
+    reader = PdfReader(pdf_file)
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages)
+
+
+2. Chunking Text with Overlap
+-------------------------------
+# From: Code/DAY2/RAGCHATBOT/rag.py
+
+CHUNK_SIZE = 800    # characters per chunk
+CHUNK_OVERLAP = 150  # overlap so context isn't lost at boundaries
+
+def chunk_text(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP) -> list:
+    text = " ".join(text.split())  # normalise whitespace
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + size
+        chunks.append(text[start:end])
+        start += size - overlap  # slide forward, keeping overlap
+    return chunks
+
+# Why overlap? So that a sentence split across a boundary
+# still appears fully in at least one chunk.
+
+
+3. Building a FAISS Vector Index
+----------------------------------
+# From: Code/DAY2/RAGCHATBOT/rag.py
+
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+
+class PDFIndex:
+    def __init__(self):
+        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        self.chunks = []
+        self.index = None
+
+    def build(self, text: str) -> int:
+        self.chunks = chunk_text(text)
+        embeddings = self.embedder.encode(
+            self.chunks, normalize_embeddings=True
+        ).astype("float32")
+        self.index = faiss.IndexFlatIP(embeddings.shape[1])  # inner product = cosine sim
+        self.index.add(embeddings)
+        return len(self.chunks)
+
+
+4. Retrieving Relevant Chunks
+------------------------------
+# From: Code/DAY2/RAGCHATBOT/rag.py
+
+TOP_K = 4  # how many chunks to retrieve
+
+def retrieve(self, question: str) -> list:
+    q = self.embedder.encode(
+        [question], normalize_embeddings=True
+    ).astype("float32")
+    _, idx = self.index.search(q, TOP_K)
+    return [self.chunks[i] for i in idx[0] if i != -1]
+
+# The index returns the indices of the most similar chunks.
+# We use those to return the actual text.
+
+
+5. Building the LLM Prompt with Context
+-----------------------------------------
+# From: Code/DAY2/RAGCHATBOT/rag.py
+
+SYSTEM_PROMPT = (
+    "You are a helpful assistant that answers questions strictly using the "
+    "provided context from a PDF document. If the answer is not in the "
+    "context, say you don't know. Be concise."
+)
+
+def build_messages(question, context_chunks, history):
+    context = "\n\n---\n\n".join(context_chunks)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(history)  # previous turns
+    messages.append({
+        "role": "user",
+        "content": f"Context:\n{context}\n\nQuestion: {question}"
+    })
+    return messages
+
+# The retrieved chunks are injected as context so the LLM
+# answers from the document, not from hallucinated knowledge.

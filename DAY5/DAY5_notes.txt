@@ -1,0 +1,210 @@
+DAY 5 - Embeddings (Part 2): Contextual, Image, Audio & Multi-Modal
+=====================================================================
+
+THEORY
+======
+
+Recap: Why Embeddings?
+-----------------------
+Embeddings convert any data (text, image, audio) into a vector so that
+similar things end up close together in vector space.
+
+Day 4 covered: word, sentence, document embeddings (all text-based).
+Day 5 covers:  contextual, image, audio, and multi-modal embeddings.
+
+
+Contextual Embeddings
+---------------------
+Traditional embeddings give the SAME vector to a word regardless of context.
+Contextual embeddings change the vector based on surrounding words.
+
+Example: the word "bank"
+  "I deposited money in the BANK."     -> financial meaning
+  "I sat on the BANK of the river."    -> geographical meaning
+
+With BERT (a Transformer model), "bank" gets a DIFFERENT embedding in each
+sentence. This lets the model understand meaning in context.
+
+Model used: bert-base-uncased (768-dimensional output)
+
+
+Image Embeddings
+----------------
+An image is passed through a neural network (CNN, ViT, CLIP) and converted
+into a vector that captures its visual features.
+
+  Image -> Neural Network -> [0.12, -0.45, 0.89, ..., 0.31]
+
+Models:
+  ViT (Vision Transformer) - google/vit-base-patch16-224 -> 768-dim vector
+  CLIP (OpenAI)            - openai/clip-vit-base-patch32 -> 512-dim vector
+
+CLIP is special: it embeds BOTH images and text in the same space,
+so you can compare "a photo of a cat" (text) with an actual cat image.
+
+
+Audio Embeddings
+----------------
+Audio signals are converted into vectors that capture:
+  - Speech content (what was said)
+  - Speaker characteristics (who said it)
+  - Emotion or tone
+  - Music style or environmental sounds
+
+Model: facebook/wav2vec2-base-960h -> 768-dim vector per audio segment
+
+Just like text embeddings convert sentences to vectors, audio embeddings
+convert sound waves to vectors.
+
+
+Multi-Modal Embeddings
+-----------------------
+A multi-modal embedding model converts DIFFERENT types of data into vectors
+that ALL live in the SAME vector space.
+
+  Text  -> Vector  }
+  Image -> Vector  }  all in the same 512-dimensional space
+  Audio -> Vector  }
+
+This allows cross-modal search:
+  - "Find images similar to this text description"
+  - "Find audio clips similar to this image"
+  - Example: CLIP enables text-to-image and image-to-text search
+
+
+CODE EXAMPLES
+=============
+
+1. Contextual Embeddings with BERT
+------------------------------------
+from transformers import AutoTokenizer, AutoModel
+import torch
+
+model_name = "bert-base-uncased"
+tokenizer  = AutoTokenizer.from_pretrained(model_name)
+model      = AutoModel.from_pretrained(model_name)
+
+sentence = "I am learning contextual embeddings using BERT."
+inputs   = tokenizer(sentence, return_tensors="pt")
+
+with torch.no_grad():
+    outputs = model(**inputs)
+
+contextual_embeddings = outputs.last_hidden_state
+print("Shape:", contextual_embeddings.shape)
+# torch.Size([1, 14, 768])
+# 1 sentence, 14 tokens, 768 dimensions each
+
+
+2. Proving "bank" has Different Embeddings in Different Contexts
+-----------------------------------------------------------------
+sentence1 = "I deposited money in the bank."
+sentence2 = "I sat on the bank of the river."
+
+inputs1 = tokenizer(sentence1, return_tensors="pt")
+inputs2 = tokenizer(sentence2, return_tensors="pt")
+
+with torch.no_grad():
+    emb1 = model(**inputs1).last_hidden_state
+    emb2 = model(**inputs2).last_hidden_state
+
+tokens1 = tokenizer.convert_ids_to_tokens(inputs1["input_ids"][0])
+tokens2 = tokenizer.convert_ids_to_tokens(inputs2["input_ids"][0])
+
+bank_idx1 = tokens1.index("bank")
+bank_idx2 = tokens2.index("bank")
+
+bank_vec1 = emb1[0][bank_idx1]
+bank_vec2 = emb2[0][bank_idx2]
+
+similarity = torch.nn.functional.cosine_similarity(
+    bank_vec1.unsqueeze(0), bank_vec2.unsqueeze(0)
+)
+print("Similarity:", similarity.item())
+# Output: 0.48  (same word, but different context -> different vector)
+
+
+3. Image Embeddings with ViT
+------------------------------
+from transformers import AutoImageProcessor, AutoModel
+from PIL import Image
+import torch
+
+processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+model     = AutoModel.from_pretrained("google/vit-base-patch16-224")
+
+image  = Image.open("image.jpeg")
+inputs = processor(images=image, return_tensors="pt")
+
+with torch.no_grad():
+    outputs = model(**inputs)
+
+embedding = outputs.last_hidden_state[:, 0, :]  # [CLS] token = image summary
+print(embedding.shape)
+# torch.Size([1, 768])
+
+
+4. Image Embeddings with CLIP (OpenAI)
+----------------------------------------
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+import torch
+
+model     = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+image  = Image.open("image.jpeg")
+inputs = processor(images=image, return_tensors="pt")
+
+with torch.no_grad():
+    image_features = model.get_image_features(**inputs)
+
+print(image_features.shape)
+# torch.Size([1, 512])
+
+# CLIP puts text and images in the SAME 512-dim space,
+# so you can compare text embeddings with image embeddings directly.
+
+
+5. Audio Embeddings with Wav2Vec2
+-----------------------------------
+from transformers import Wav2Vec2Processor, Wav2Vec2Model
+import torchaudio
+import torch
+
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+model     = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+
+waveform, sample_rate = torchaudio.load("audio.wav")
+
+# Resample to 16kHz if needed (Wav2Vec2 expects 16kHz)
+if sample_rate != 16000:
+    resampler = torchaudio.transforms.Resample(sample_rate, 16000)
+    waveform  = resampler(waveform)
+
+inputs = processor(
+    waveform.squeeze().numpy(),
+    sampling_rate=16000,
+    return_tensors="pt"
+)
+
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# Average over time steps to get one vector per audio clip
+embedding = outputs.last_hidden_state.mean(dim=1)
+print(embedding.shape)
+# torch.Size([1, 768]) for single audio, [2, 768] for stereo/batch
+
+
+SUMMARY - All Embedding Types
+==============================
+
+  Type         | Model                       | Output Shape | Use Case
+  -------------|-----------------------------|--------------|--------------------------
+  Word/Sentence| all-MiniLM-L6-v2            | (N, 384)     | Text search, RAG, matching
+  Contextual   | bert-base-uncased           | (1, T, 768)  | NLP, understanding context
+  Image (ViT)  | vit-base-patch16-224        | (1, 768)     | Image search, classification
+  Image (CLIP) | clip-vit-base-patch32       | (1, 512)     | Text-to-image search
+  Audio        | wav2vec2-base-960h          | (1, 768)     | Speech recognition, audio search
+  Multi-Modal  | CLIP (text + image jointly) | (1, 512)     | Cross-modal retrieval

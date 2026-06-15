@@ -1,0 +1,153 @@
+DAY 4 - Embeddings (Part 1)
+============================
+
+THEORY
+======
+
+What are Embeddings?
+---------------------
+An embedding is a numerical vector that represents data (text, image, audio)
+in a mathematical space where similar things are placed close together.
+
+  "cat"  -> [0.12, -0.45, 0.89, ..., 0.31]  (384 numbers)
+  "dog"  -> [0.11, -0.43, 0.91, ..., 0.29]  (close to "cat")
+  "car"  -> [0.98,  0.21, -0.33, ..., 0.05] (far from "cat")
+
+Why Embeddings?
+  - Computers cannot understand words directly
+  - Vectors let us do MATH on meaning
+  - We can measure similarity: cos(cat, dog) > cos(cat, car)
+
+Cosine Similarity
+-----------------
+Measures the angle between two vectors.
+  - Score of 1.0 = identical meaning
+  - Score of 0.0 = completely unrelated
+  - Used to find "most similar" documents for a query
+
+Word Embeddings
+---------------
+Each word gets its own vector.
+Model: SentenceTransformer("all-MiniLM-L6-v2")
+Output shape for 3 sentences: (3, 384) -> 3 vectors of 384 dimensions each
+
+Sentence Embeddings
+--------------------
+The entire sentence is encoded into one vector.
+Captures the overall meaning, not just individual words.
+Use case: find which job description best matches a resume sentence.
+
+Document Embeddings
+--------------------
+Entire paragraphs or documents are embedded.
+Combined with cosine similarity -> find the most relevant document for a query.
+This is the foundation of the RAG pipeline (Day 2).
+
+Pipeline reminder:
+  PDF -> Text -> Chunks -> Embeddings -> FAISS -> Similarity Search -> LLM
+
+
+CODE EXAMPLES
+=============
+
+1. Word Embeddings
+-------------------
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+sentences = [
+    "Artificial Intelligence is amazing.",
+    "Machine Learning is a subset of AI.",
+    "I am learning Transformers.",
+]
+
+embeddings = model.encode(sentences)
+print("Shape:", embeddings.shape)   # (3, 384)
+print("First vector (first 5):", embeddings[0][:5])
+# [-0.016, -0.085, 0.070, -0.036, -0.031]
+
+
+2. Sentence Embeddings - Job Finding Use Case
+----------------------------------------------
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Job descriptions
+jobs = [
+    "We are looking for a Python backend developer with FastAPI experience.",
+    "Frontend React developer needed for a startup.",
+    "Data Scientist with ML and Python skills required.",
+]
+
+# Candidate resume sentence
+resume = "I build REST APIs using Python and FastAPI."
+
+job_embeddings    = model.encode(jobs)
+resume_embedding  = model.encode([resume])
+
+from sentence_transformers import util
+scores = util.cos_sim(resume_embedding, job_embeddings)
+print(scores)
+# tensor([[0.78, 0.21, 0.45]])  -> Job 1 is the best match
+
+
+3. Document Embeddings + Best Match
+-------------------------------------
+from sentence_transformers import SentenceTransformer, util
+import torch
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+documents = [
+    "Java is a high-level, object-oriented programming language used for enterprise apps.",
+    "Spring Boot simplifies Java development with auto-configuration.",
+    "Transformers are deep learning models that revolutionised NLP.",
+]
+
+doc_embeddings = model.encode(documents, convert_to_tensor=True)
+query = "How can I build backend APIs with Java?"
+query_embedding = model.encode(query, convert_to_tensor=True)
+
+scores     = util.cos_sim(query_embedding, doc_embeddings)
+best_match = torch.argmax(scores)
+
+print("Query:", query)
+print("Best Document:", documents[best_match])
+# Output: "Java is a high-level, object-oriented programming language..."
+
+
+4. Attendance Prediction with ML (predict.py)
+-----------------------------------------------
+# From: Code/DAY4/ModelOnTheBasisOFTheDATASET/predict.py
+# Loads a pre-trained sklearn model to predict if an employee
+# will arrive on time ("Safe") or late ("Danger").
+
+# Usage from terminal:
+#   python predict.py --employee Person_42 --date 2024-12-13
+
+import joblib, pandas as pd, numpy as np
+
+model      = joblib.load("vault_tec_punctuality_model.pkl")
+le         = joblib.load("label_encoder.pkl")
+scaler     = joblib.load("scaler.pkl")
+feat_cols  = joblib.load("feature_columns.pkl")
+
+# Feature engineering for the target date
+target_dt = pd.to_datetime("2024-12-13")
+features = {
+    "employee_id_enc"  : le.transform(["Person_42"])[0],
+    "day_of_week"      : target_dt.dayofweek,    # 0=Mon, 6=Sun
+    "month"            : target_dt.month,
+    "day_of_year_sin"  : np.sin(2 * np.pi * target_dt.dayofyear / 365.25),
+    "day_of_year_cos"  : np.cos(2 * np.pi * target_dt.dayofyear / 365.25),
+    "rolling_mean_5"   : 535.0,  # avg arrival minute over last 5 days
+    "rolling_safe_rate_5" : 0.8, # on-time rate over last 5 days
+    # ... more rolling features
+}
+
+X = pd.DataFrame([features])[feat_cols]
+pred = model.predict(X)[0]
+prob = model.predict_proba(X)[0].max()
+print(f"Prediction: {'Safe' if pred == 1 else 'Danger'} ({prob:.0%} confidence)")
